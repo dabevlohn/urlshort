@@ -43,6 +43,10 @@
 
 #![allow(unused_variables, dead_code)]
 
+use rand::{distributions::Alphanumeric, Rng};
+use std::collections::{BTreeMap, HashMap};
+use url::Url as Vurl;
+
 /// All possible errors of the [`UrlShortenerService`].
 #[derive(Debug, PartialEq)]
 pub enum ShortenerError {
@@ -60,15 +64,15 @@ pub enum ShortenerError {
 
 /// A unique string (or alias) that represents the shortened version of the
 /// URL.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Hash, Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
 pub struct Slug(pub String);
 
 /// The original URL that the short link points to.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Hash, Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
 pub struct Url(pub String);
 
 /// Shortened URL representation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Hash, Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
 pub struct ShortLink {
     /// A unique string (or alias) that represents the shortened version of the
     /// URL.
@@ -130,12 +134,17 @@ pub mod queries {
 /// CQRS and Event Sourcing-based service implementation
 pub struct UrlShortenerService {
     // TODO: add needed fields
+    slugs: HashMap<String, String>,
+    stats: BTreeMap<String, u64>,
 }
 
 impl UrlShortenerService {
     /// Creates a new instance of the service
     pub fn new() -> Self {
-        Self {}
+        Self {
+            slugs: HashMap::new(),
+            stats: BTreeMap::new(),
+        }
     }
 }
 
@@ -145,20 +154,141 @@ impl commands::CommandHandler for UrlShortenerService {
         url: Url,
         slug: Option<Slug>,
     ) -> Result<ShortLink, ShortenerError> {
-        todo!("Implement the logic for creating a short link")
+        let sl: Slug;
+        match slug {
+            Some(s) => sl = s,
+            None => {
+                let rnd7: String = rand::thread_rng()
+                    .sample_iter(&Alphanumeric)
+                    .take(7)
+                    .map(char::from)
+                    .collect();
+                sl = Slug(rnd7);
+            }
+        };
+        match Vurl::parse(&url.0) {
+            Ok(_) => match self.slugs.get(&sl.0) {
+                Some(_) => Err(ShortenerError::SlugAlreadyInUse),
+                None => {
+                    self.slugs.insert(sl.0.clone(), url.0.clone());
+                    Ok(ShortLink { url, slug: sl })
+                }
+            },
+            Err(_) => Err(ShortenerError::InvalidUrl),
+        }
     }
 
     fn handle_redirect(&mut self, slug: Slug) -> Result<ShortLink, ShortenerError> {
-        todo!("Implement the logic for redirection and incrementing the click counter")
+        match self.slugs.get(&slug.0) {
+            Some(u) => {
+                let inc = self.stats.entry(slug.0.clone()).or_insert(0);
+                *inc += 1;
+                Ok(ShortLink {
+                    url: Url(u.clone()),
+                    slug,
+                })
+            }
+            None => Err(ShortenerError::SlugNotFound),
+        }
     }
 }
 
 impl queries::QueryHandler for UrlShortenerService {
     fn get_stats(&self, slug: Slug) -> Result<Stats, ShortenerError> {
-        todo!("Implement the logic for retrieving link statistics")
+        todo!()
+        // match self.stats.get(&slug.0) {
+        //     Some(&redirects) => Ok(Stats {
+        //         link: Url(u.clone()),
+        //         redirects,
+        //     }),
+        //     None => Err(ShortenerError::SlugNotFound),
+        // }
     }
 }
 
-fn main() {
-    println!("Hello, world!");
+// Dummy fun
+fn main() {}
+
+#[cfg(test)]
+mod tests {
+    use super::{ShortLink, Slug, Url};
+    use crate::commands::CommandHandler;
+    use crate::UrlShortenerService;
+
+    #[test]
+    fn check_create_defined_slug() {
+        let my_url = Url("https://www.example.com/".to_string());
+        let my_slug = Slug("my-awesome-slug".to_string());
+        let mut shortener = UrlShortenerService::new();
+
+        assert_eq!(
+            ShortLink {
+                url: my_url.clone(),
+                slug: my_slug.clone()
+            },
+            shortener
+                .handle_create_short_link(my_url, Some(my_slug))
+                .expect("not implemented")
+        );
+    }
+
+    #[test]
+    fn check_one_redirect_defined_slug() {
+        let my_url = Url("https://www.example.com/".to_string());
+        let my_slug = Slug("my-awesome-slug".to_string());
+        let mut shortener = UrlShortenerService::new();
+
+        shortener
+            .handle_create_short_link(my_url.clone(), Some(my_slug.clone()))
+            .expect("not implemented");
+
+        assert_eq!(
+            ShortLink {
+                url: my_url,
+                slug: my_slug.clone()
+            },
+            shortener.handle_redirect(my_slug).expect("not implemented")
+        );
+    }
+
+    #[test]
+    fn check_few_redirects_defined_slug() {
+        let my_url = Url("https://www.example.com/".to_string());
+        let my_slug = Slug("my-awesome-slug".to_string());
+        let mut shortener = UrlShortenerService::new();
+
+        shortener
+            .handle_create_short_link(my_url.clone(), Some(my_slug.clone()))
+            .expect("not implemented");
+
+        for i in 0..10 {
+            shortener
+                .handle_redirect(my_slug.clone())
+                .expect("not implemented");
+        }
+
+        assert_eq!(
+            ShortLink {
+                url: my_url,
+                slug: my_slug.clone()
+            },
+            shortener.handle_redirect(my_slug).expect("not implemented")
+        );
+    }
+
+    #[test]
+    fn check_one_redirect_random_slug() {
+        let my_url = Url("https://www.example.com/".to_string());
+        let mut shortener = UrlShortenerService::new();
+
+        let short_link = shortener
+            .handle_create_short_link(my_url.clone(), None)
+            .expect("not implemented");
+        let slug = short_link.clone().slug;
+
+        assert_eq!(
+            short_link,
+            shortener.handle_redirect(slug).expect("not implemented")
+        );
+    }
 }
