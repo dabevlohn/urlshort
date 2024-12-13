@@ -154,26 +154,28 @@ impl commands::CommandHandler for UrlShortenerService {
         url: Url,
         slug: Option<Slug>,
     ) -> Result<ShortLink, ShortenerError> {
-        let sl: Slug;
-        match slug {
-            Some(s) => sl = s,
-            None => {
-                let rnd7: String = rand::thread_rng()
-                    .sample_iter(&Alphanumeric)
-                    .take(7)
-                    .map(char::from)
-                    .collect();
-                sl = Slug(rnd7);
-            }
-        };
         match Vurl::parse(&url.0) {
-            Ok(_) => match self.slugs.get(&sl.0) {
-                Some(_) => Err(ShortenerError::SlugAlreadyInUse),
-                None => {
-                    self.slugs.insert(sl.0.clone(), url.0.clone());
-                    Ok(ShortLink { url, slug: sl })
+            Ok(_) => {
+                let sl: Slug;
+                match slug {
+                    Some(s) => sl = s,
+                    None => {
+                        let rnd7: String = rand::thread_rng()
+                            .sample_iter(&Alphanumeric)
+                            .take(7)
+                            .map(char::from)
+                            .collect();
+                        sl = Slug(rnd7);
+                    }
+                };
+                match self.slugs.get(&sl.0) {
+                    Some(_) => Err(ShortenerError::SlugAlreadyInUse),
+                    None => {
+                        self.slugs.insert(sl.0.clone(), url.0.clone());
+                        Ok(ShortLink { url, slug: sl })
+                    }
                 }
-            },
+            }
             Err(_) => Err(ShortenerError::InvalidUrl),
         }
     }
@@ -195,14 +197,19 @@ impl commands::CommandHandler for UrlShortenerService {
 
 impl queries::QueryHandler for UrlShortenerService {
     fn get_stats(&self, slug: Slug) -> Result<Stats, ShortenerError> {
-        todo!()
-        // match self.stats.get(&slug.0) {
-        //     Some(&redirects) => Ok(Stats {
-        //         link: Url(u.clone()),
-        //         redirects,
-        //     }),
-        //     None => Err(ShortenerError::SlugNotFound),
-        // }
+        match self.stats.get(&slug.0) {
+            Some(&redirects) => match self.slugs.get(&slug.0) {
+                Some(u) => {
+                    let link = ShortLink {
+                        url: Url(u.to_string()),
+                        slug,
+                    };
+                    Ok(Stats { link, redirects })
+                }
+                None => Err(ShortenerError::SlugNotFound),
+            },
+            None => Err(ShortenerError::SlugNotFound),
+        }
     }
 }
 
@@ -211,8 +218,9 @@ fn main() {}
 
 #[cfg(test)]
 mod tests {
-    use super::{ShortLink, Slug, Url};
+    use super::{ShortLink, Slug, Stats, Url};
     use crate::commands::CommandHandler;
+    use crate::queries::QueryHandler;
     use crate::UrlShortenerService;
 
     #[test]
@@ -261,18 +269,24 @@ mod tests {
             .handle_create_short_link(my_url.clone(), Some(my_slug.clone()))
             .expect("not implemented");
 
-        for i in 0..10 {
+        let redirects: u64 = 10;
+
+        for i in 0..redirects {
             shortener
                 .handle_redirect(my_slug.clone())
                 .expect("not implemented");
         }
 
+        let sl = ShortLink {
+            url: my_url,
+            slug: my_slug.clone(),
+        };
         assert_eq!(
-            ShortLink {
-                url: my_url,
-                slug: my_slug.clone()
+            Stats {
+                link: sl,
+                redirects
             },
-            shortener.handle_redirect(my_slug).expect("not implemented")
+            shortener.get_stats(my_slug).expect("not implemented")
         );
     }
 
