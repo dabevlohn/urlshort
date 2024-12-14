@@ -64,15 +64,15 @@ pub enum ShortenerError {
 
 /// A unique string (or alias) that represents the shortened version of the
 /// URL.
-#[derive(Hash, Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Slug(pub String);
 
 /// The original URL that the short link points to.
-#[derive(Hash, Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Url(pub String);
 
 /// Shortened URL representation.
-#[derive(Hash, Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct ShortLink {
     /// A unique string (or alias) that represents the shortened version of the
     /// URL.
